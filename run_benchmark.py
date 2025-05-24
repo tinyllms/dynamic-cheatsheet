@@ -10,6 +10,7 @@ from dynamic_cheatsheet.language_model import LanguageModel
 from dynamic_cheatsheet.utils.evaluation import eval_for_GameOf24, eval_for_multiple_choice, eval_for_exact_matching_with_no_punctuation, eval_equation_balancer
 
 from dotenv import load_dotenv
+load_dotenv("config.env")
 
 PREDEFINED_PROMPTS = {
     "GameOf24": f"Let's play a game called 24. You'll be given four integers, and your objective is to use each number only once, combined with any of the four arithmetic operations (addition, subtraction, multiplication, and division) and parentheses, to achieve a total of 24. For example, if the input is 4, 7, 8, and 8, the output could be (7 - (8 / 8)) * 4 = 24. Please present a single expression that evaluates to 24.",
@@ -27,10 +28,11 @@ class Arguments(Tap):
 
     # Model name
     model_name: str = "openai/gpt-4o-mini"
+    use_vllm: bool = False
 
     # Paths to the prompt files
     generator_prompt_path: str = "prompts/simple_generator.txt"
-    cheatshet_prompt_path: str = None
+    cheatsheet_prompt_path: str = None
 
     # Additional model-related arguments
     max_tokens: int = 2048
@@ -80,8 +82,8 @@ def main(args: Arguments):
 
     # Read the prompt files
     args.generator_prompt = read_file(args.generator_prompt_path)
-    if args.cheatshet_prompt_path:
-        args.cheatsheet_prompt = read_file(args.cheatshet_prompt_path)
+    if args.cheatsheet_prompt_path:
+        args.cheatsheet_prompt = read_file(args.cheatsheet_prompt_path)
     else:
         args.cheatsheet_prompt = "(empty)"
 
@@ -91,6 +93,7 @@ def main(args: Arguments):
     # Initialize the language model
     model = LanguageModel(
         model_name=args.model_name,
+        use_vllm=args.use_vllm,
     )
 
     # Add a flag to the save path if the code execution is not allowed
@@ -118,7 +121,7 @@ def main(args: Arguments):
             previous_run_params = json.load(file)
 
         # Compare the provided arguments with the previous run parameters
-        args_keys = ["generator_prompt_path", "cheatshet_prompt_path", "temperature", "execute_python_code", "task", "model_name", "approach_name", "max_num_rounds"]
+        args_keys = ["generator_prompt_path", "cheatsheet_prompt_path", "temperature", "execute_python_code", "task", "model_name", "approach_name", "max_num_rounds"]
 
         # Compare the provided arguments with the previous run parameters
         for key in args_keys:

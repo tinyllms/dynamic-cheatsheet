@@ -6,10 +6,15 @@ from .utils.execute_code import extract_and_run_python_code
 from .utils.extractor import extract_answer, extract_cheatsheet
 from litellm import completion
 from functools import partial
+import os
+from dotenv import load_dotenv
+from vllm import LLM, SamplingParams
+from transformers import AutoTokenizer
 
 class LanguageModel:
     def __init__(self,
         model_name: str,
+        use_vllm: bool = False,
     ) -> None:
         """
         LanguageModel class to interact with different language models.
@@ -23,35 +28,21 @@ class LanguageModel:
         """
 
         self.model_name = model_name
-
+        self.use_vllm = use_vllm
+        
         # Load the client for the model based on the model name
-        if self.model_name in [
-            "openai/gpt-4o-mini", "openai/gpt-4o-mini-2024-07-18",
-            "openai/gpt-4o", "openai/gpt-4o-2024-08-06", "openai/gpt-4o-2024-11-20",
-            "openai/gpt-3.5-turbo",
-            "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo",
-            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-            "openai/o3-mini", "openai/o3-mini-2025-01-31",
-            "openai/o1", "openai/o1-2024-12-17",
-            "anthropic/claude-3-5-sonnet-latest", "anthropic/claude-3-5-sonnet-20241022",
-            "anthropic/claude-3-5-haiku-latest", "anthropic/claude-3-5-haiku-20241022",
-            "anthropic/claude-3-7-sonnet-latest", "anthropic/claude-3-7-sonnet-20250219",
-            "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
-            "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo",
-            "together_ai/deepseek-ai/DeepSeek-R1",
-            "together_ai/deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
-            "together_ai/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
-            "together_ai/Qwen/Qwen2.5-Coder-32B-Instruct",
-            "together_ai/Qwen/QwQ-32B",
-            "together_ai/Qwen/Qwen2-72B-Instruct",
-            "together_ai/Qwen/Qwen2.5-7B-Instruct-Turbo",
-            "together_ai/Qwen/Qwen2.5-72B-Instruct-Turbo",
-            "gemini/gemini-2.0-flash",
-            "ollama/llama3:70b",
-        ]:
-            self.client = partial(completion, model=self.model_name)
+        if self.use_vllm:
+            self.client = LLM(
+                self.model_name,
+                tensor_parallel_size=1,
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.stop_token_ids = self.tokenizer("<|im_end|>")["input_ids"]
         else:
-            raise ValueError(f"Model '{model_name}' not found.")
+            try:
+                self.client = partial(completion, model=self.model_name)
+            except Exception as e:
+                raise ValueError(f"Model '{model_name}' not found. Please check the model name and try again.")
         
         self.gpt4Tokenizer = tiktoken.encoding_for_model('gpt-4o')
         
@@ -97,12 +88,35 @@ class LanguageModel:
         
 
         # Generate the response from the language model
-        output = self.client(
-            messages=history,
-            model=self.model_name,
-            temperature=temperature,
-            max_completion_tokens=max_tokens,
-        ).choices[0].message["content"]
+        if self.use_vllm:
+            # Prepare the prompt for the language model
+            prompt = self.tokenizer.apply_chat_template(
+                history,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+            # Sampling parameters
+            sampling_params = SamplingParams(
+                max_tokens=max_tokens,
+                min_tokens=0,
+                stop_token_ids=self.stop_token_ids,
+                temperature=temperature,
+            )
+            # Generate the response from the language model
+            output = self.client.generate(
+                prompts=prompt, # this is tokenized prompt
+                sampling_params=sampling_params,
+            )
+            output = output[0].outputs[0].text
+        else:
+            # Generate the response from the language model
+            output = self.client(
+                    messages=history,
+                    model=self.model_name,
+                    temperature=temperature,
+                    max_completion_tokens=max_tokens,
+                ).choices[0].message["content"]
 
         # If Python code execution is allowed, execute the code
         pre_code_execution_flag = output.split(code_execution_flag)[0].strip()
