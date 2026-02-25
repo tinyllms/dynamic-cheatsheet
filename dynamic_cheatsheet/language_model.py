@@ -36,13 +36,20 @@ class LanguageModel:
     def __init__(self,
         model_name: str,
         supported_models: List[str] = SUPPORTED_MODELS,
+        api_base: str = None,
+        api_key: str = None,
     ) -> None:
         """
         LanguageModel class to interact with different language models.
 
         Arguments:
             model_name : str : The name of the language model to use.
-            api_key : str : The API key for the model.
+            supported_models : List[str] : The list of supported model names.
+            api_base : str : Custom API base URL (e.g. for a self-hosted
+                             vLLM / Ray Serve endpoint). When provided the
+                             supported_models allow-list is skipped.
+            api_key : str : API key for the provider (e.g. Together AI).
+                            When omitted litellm reads from environment variables.
 
         Raises:
             ValueError : If the model name is not found.
@@ -50,11 +57,16 @@ class LanguageModel:
 
         self.model_name = model_name
 
-        # Load the client for the model based on the model name
-        if self.model_name in supported_models:
-            self.client = partial(completion, model=self.model_name)
-        else:
+
+        # Build the client partial — custom endpoint or allow-listed model
+        client_kwargs = dict(model=self.model_name)
+        if api_base:
+            client_kwargs["api_base"] = api_base
+        elif self.model_name not in supported_models:
             raise ValueError(f"Model '{model_name}' not found.")
+        if api_key:
+            client_kwargs["api_key"] = api_key
+        self.client = partial(completion, **client_kwargs)
         
         self.gpt4Tokenizer = tiktoken.encoding_for_model('gpt-4o')
         
